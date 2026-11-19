@@ -1,0 +1,16 @@
+# 忽略构建与本地文件
+bin/
+obj/
+dist/
+*.user
+*.suo
+.vs/
+
+# 内部验收产物（含本机路径与第三方程序的取证字符串，不公开）
+qa/
+qa-ui-shots/
+scripts/backup-bandizip-assoc/
+
+# 临时
+*.log
+*.tmp

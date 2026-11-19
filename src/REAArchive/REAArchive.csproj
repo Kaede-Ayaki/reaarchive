@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>REAArchive</AssemblyName>
+    <RootNamespace>REAArchive</RootNamespace>
+    <Product>REAArchive</Product>
+    <AssemblyTitle>REAArchive — 纯净压缩</AssemblyTitle>
+    <Company>REA</Company>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Copyright>MIT (本程序) / 7-Zip 引擎 LGPL</Copyright>
+    <!-- 不联网、无更新器：下面两个开关本身就是"不检查更新"的声明 -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <NoWarn>CA1416</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    7-Zip 引擎（LGPL v2.1+，许可原文见 Resources/7z/License.txt）有两种分发形态：
+      1) 开发/目录构建：作为普通文件拷到输出目录 Resources\7z\  （便于调试与替换引擎）
+      2) 单文件发布  ：编译进程序集（EmbeddedResource），首次运行释放到
+                       %LOCALAPPDATA%\REAArchive\engine\<hash>\ 再由 SevenZipEngine 使用
+   单文件发布时不再输出散文件，保证"一个 exe 就能跑"。
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\7z\7z.exe" LogicalName="REAArchive.engine.7z.exe" />
+    <EmbeddedResource Include="Resources\7z\7z.dll" LogicalName="REAArchive.engine.7z.dll" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PublishSingleFile)' != 'true'">
+    <None Include="Resources\7z\7z.exe" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\7z\7z.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\7z\License.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\7z\README-ENGINE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
