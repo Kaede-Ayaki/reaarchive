@@ -877,10 +877,34 @@ internal sealed class ThemedListView : ListView
     public int SortColumnIndex { get; set; } = -1;
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool SortAscending { get; set; } = true;
+    private string _emptyText = "没有打开的归档";
+    private string _emptySubText = "把归档拖到这里，或按 Ctrl+O 打开";
+
+    /// <summary>空态主标题。赋值会触发重绘——否则引擎探测完成后文案变了、屏幕还是旧的。</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public string EmptyText { get; set; } = "没有打开的归档";
+    public string EmptyText
+    {
+        get => _emptyText;
+        set
+        {
+            if (_emptyText == value) return;
+            _emptyText = value ?? "";
+            Invalidate();
+        }
+    }
+
+    /// <summary>空态副标题（可多行）。赋值会触发重绘。</summary>
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public string EmptySubText { get; set; } = "把归档拖到这里，或按 Ctrl+O 打开";
+    public string EmptySubText
+    {
+        get => _emptySubText;
+        set
+        {
+            if (_emptySubText == value) return;
+            _emptySubText = value ?? "";
+            Invalidate();
+        }
+    }
 
     public ThemedListView()
     {
