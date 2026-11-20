@@ -1233,7 +1233,7 @@ internal sealed class AboutDialog : ThemedForm
 
         var subtitle = new Label
         {
-            Text = "纯净压缩 · 版本 1.0.0",
+            Text = "纯净压缩 · 版本 1.1.0",
             Font = Theme.Ui(),
             ForeColor = Theme.TextDim,
             BackColor = Color.Transparent,

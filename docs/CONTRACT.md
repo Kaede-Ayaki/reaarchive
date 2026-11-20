@@ -65,6 +65,51 @@ UI 不得用"解压→重建→替换"绕过引擎；`CreateAsync` 对已存在�
 自测（`tests/`）：`dotnet run --project tests/EngineTests` 或 `dotnet test`（无 NuGet 断言库 → 用纯 `Console` + 退出码，或 xunit 不可用则自写断言）。
 必须覆盖：列表/创建/解压/测试四操作 × {7z, zip, tar, gz, bz2, xz}；中文文件名；10k 小文件；深目录；空文件/空目录；损坏归档；错误密码；取消；目录穿越（恶意归档用 7z 命令行构造 `../evil.txt`）。
 
+## 2b. 密码破译层（recovery，2026-11-20 追加）
+
+用途：用户忘记自己归档的密码时，在本机组合尝试找回。**不联网、不调用任何在线服务、密码不落盘。**
+
+公开面在 `Archive/PasswordRecovery.cs`：
+
+```csharp
+public enum RecoveryStrategy { Dictionary, Mask, Incremental }
+[Flags] public enum WordVariant { None, Capitalize, Upper, AppendDigits, AppendYear, PrependDigit }
+
+public sealed record RecoveryOptions   { ArchivePath, Strategy, WordlistPaths, Variants, Mask,
+                                         CustomSets, Charset, MinLength, MaxLength, KnownPrefix, MaxAttempts }
+public sealed record RecoveryProgress  { Tried, AttemptsPerSecond, CurrentCandidate, Percent, Eta,
+                                         TotalCandidates, Phase }
+public sealed record RecoveryResult    { Found, Password, Tried, Elapsed, Verifier, Exhausted }
+
+public interface IPasswordRecoveryService
+{
+    bool SupportsNativeVerify(string archivePath);
+    long EstimateCandidates(RecoveryOptions options);
+    Task<RecoveryResult> RecoverAsync(RecoveryOptions options,
+        IProgress<RecoveryProgress>? progress = null, CancellationToken ct = default);
+}
+```
+
+**两条校验通道**（性能差 3 个数量级，UI 必须如实展示是哪一条）：
+
+| 归档 | 通道 | 实测吞吐 |
+|---|---|---|
+| `.zip`（ZipCrypto / WinZip AES） | 进程内 `ZipPasswordVerifier`：EOCD→中央目录→本地头，1/256 或 2 字节 verifier 初筛 + CRC32/HMAC 精确复核 | **≈ 50 万次/秒** |
+| 其他（7z/rar…） | `7z t -p<候选>` 串行子进程预言机 | **≈ 15 次/秒** |
+
+实现要点：
+
+1. `EstimateCandidates` 与 `SupportsNativeVerify` 是**纯计算**，UI 每次击键都会调；构造函数不得探测引擎或启子进程。
+2. `EstimateCandidates` **不做** `Validate`：字典模式无论是否已加词表一律返回 `-1`（未知）；空掩码/空字符集返回 `0`；非法占位符仍抛中文 `ArchiveException`（用户正在输入，需即时纠正）。
+3. 真正的参数校验由 `RecoverAsync` 内部 `Validate` 负责，配置不全时抛中文 `ArchiveException`。
+4. ZipCrypto 的密码按**字节**参与派生，没有编码声明：同一字符串依次按 UTF-8 / GB18030 / Latin-1 三套字节尝试（纯 ASCII 走快路径）。
+5. 取消：每候选检查 `CancellationToken`，取消抛 `OperationCanceledException`。达到 `MaxAttempts` 或候选耗尽返回 `Exhausted=true, Found=false`。
+6. **密码只在 `RecoveryResult.Password` 与内存中出现**，不写日志、不写设置文件。
+
+禁止事项：不得新增 `7z.exe` 之外的破译依赖；不得实现任何在线校验；不得把候选/命中写盘。
+
+---
+
 ## 3. UI 层（archive-ui）
 
 ### 3.1 主窗口（深色专业风格）

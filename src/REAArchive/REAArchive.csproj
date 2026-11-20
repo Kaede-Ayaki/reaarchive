@@ -12,8 +12,8 @@
     <Product>REAArchive</Product>
     <AssemblyTitle>REAArchive — 纯净压缩</AssemblyTitle>
     <Company>REA</Company>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.1.0</Version>
+    <FileVersion>1.1.0.0</FileVersion>
     <Copyright>MIT (本程序) / 7-Zip 引擎 LGPL</Copyright>
     <!-- 不联网、无更新器：下面两个开关本身就是"不检查更新"的声明 -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>

@@ -12,7 +12,7 @@ namespace REAArchive;
 internal static class Program
 {
     private const string ProductName = "REAArchive";
-    private const string ProductVersion = "1.0.0";
+    private const string ProductVersion = "1.1.0";
 
     /// <summary>进程内计时（仅诊断用，环境变量 REAARCHIVE_TIMING=1 时输出）。</summary>
     internal static readonly Stopwatch Clock = Stopwatch.StartNew();

@@ -53,6 +53,7 @@ internal static class Program
             ("密码错误", () => ErrorTests.PasswordErrorsAsync(svc)),
             ("单文件读取", () => ErrorTests.ReadEntryErrorsAsync(svc)),
             ("取消", () => ErrorTests.CancelAsync(svc)),
+            ("密码破译", () => RecoveryTests.RunAsync(svc)),
             ("目录穿越", () => SecurityTests.TraversalAsync(svc)),
             ("非法字符消毒", () => SecurityTests.SanitizeAsync(svc)),
             ("格式识别", () => SecurityTests.DetectFormatAsync(svc)),

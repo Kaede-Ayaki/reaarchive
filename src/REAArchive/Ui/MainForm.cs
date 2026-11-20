@@ -53,12 +53,14 @@ public sealed class MainForm : Form, IListViewRowSource
     private readonly Button _btnDelete;
     private readonly Button _btnInfo;
     private readonly Button _btnUp;
+    private readonly Button _btnRecover;
+    private readonly ArchiveInfoStrip _infoStrip;
     private readonly System.Windows.Forms.Timer _filterTimer;
-    private Panel? _emptyLayer;
-    private Label? _emptyLabel;
     private readonly TableLayoutPanel _root;
     private readonly RowStyle _toolbarRow;
     private readonly RowStyle _pathRow;
+    private readonly RowStyle _infoRow;
+    private readonly RowStyle _listRow;
     private readonly RowStyle _statusRow;
 
     private readonly ToolStripMenuItem _miExtractTo;
@@ -68,6 +70,7 @@ public sealed class MainForm : Form, IListViewRowSource
     private readonly ToolStripMenuItem _miAddFolder;
     private readonly ToolStripMenuItem _miDelete;
     private readonly ToolStripMenuItem _miInfo;
+    private readonly ToolStripMenuItem _miRecover;
 
     private readonly List<string> _tempRoots = new();
     private List<EntryRow> _view = new();
@@ -121,6 +124,9 @@ public sealed class MainForm : Form, IListViewRowSource
         KeyPreview = true;
 
         _menu = BuildMenu();
+        // 菜单被放进 TableLayoutPanel（不是直接挂到 Form.Controls），WinForms 不会自动
+        // 把它登记为 MainMenuStrip；不显式赋值的话 Alt+F / Alt+T 这些助记键全部失效。
+        MainMenuStrip = _menu;
 
         _btnOpen = Theme.ToolButton("btnOpen", "打开", Glyph.Open, (_, _) => RunUi(OpenArchivePickerAsync));
         _btnExtractTo = Theme.ToolButton("btnExtractTo", "解压到…", Glyph.ExtractTo, (_, _) => RunUi(() => ExtractArchiveAsync(here: false)));
@@ -130,10 +136,14 @@ public sealed class MainForm : Form, IListViewRowSource
         _btnAdd = Theme.ToolButton("btnAdd", "添加", Glyph.Add, (_, _) => RunUi(AddFilesInteractiveAsync));
         _btnDelete = Theme.ToolButton("btnDelete", "删除", Glyph.Delete, (_, _) => RunUi(DeleteSelectedAsync));
         _btnInfo = Theme.ToolButton("btnInfo", "信息", Glyph.Info, (_, _) => ShowEntryInfo());
+        _btnRecover = Theme.ToolButton("btnRecover", "密码破译", Glyph.Key, (_, _) => RunUi(RecoverPasswordAsync));
 
-        _btnUp = Theme.DialogButton("btnUp", "↑ 上级", false, 68);
+        _btnUp = Theme.DialogButton("btnUp", "↑", false, 34);
+        _btnUp.Name = "btnUp";
         _btnUp.Height = 30;
         _btnUp.Click += (_, _) => GoUp();
+
+        _infoStrip = new ArchiveInfoStrip();
 
         _list = new ThemedListView { Dock = DockStyle.Fill };
         _list.Columns.Add("名称", 420, HorizontalAlignment.Left);
@@ -206,27 +216,31 @@ public sealed class MainForm : Form, IListViewRowSource
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 6,
             BackColor = Theme.Background,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        _root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        _toolbarRow = new RowStyle(SizeType.Absolute, 50f);
-        _pathRow = new RowStyle(SizeType.Absolute, 46f);
+        _root.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // 0 菜单
+        _toolbarRow = new RowStyle(SizeType.Absolute, 50f);          // 1 工具栏
+        _infoRow = new RowStyle(SizeType.Absolute, 0f);              // 2 归档信息条（无归档时收起）
+        _pathRow = new RowStyle(SizeType.Absolute, 44f);             // 3 路径栏
+        _listRow = new RowStyle(SizeType.Percent, 100f);             // 4 列表
+        _statusRow = new RowStyle(SizeType.Absolute, 30f);           // 5 状态栏
         _root.RowStyles.Add(_toolbarRow);
+        _root.RowStyles.Add(_infoRow);
         _root.RowStyles.Add(_pathRow);
-        _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        _statusRow = new RowStyle(SizeType.Absolute, 30f);
+        _root.RowStyles.Add(_listRow);
         _root.RowStyles.Add(_statusRow);
         Controls.Add(_root);
 
         _root.Controls.Add(_menu, 0, 0);
         _root.Controls.Add(BuildToolbar(), 0, 1);
-        _root.Controls.Add(BuildPathBar(), 0, 2);
-        _root.Controls.Add(BuildListHost(), 0, 3);
-        _root.Controls.Add(BuildStatusBar(), 0, 4);
+        _root.Controls.Add(BuildInfoHost(), 0, 2);
+        _root.Controls.Add(BuildPathBar(), 0, 3);
+        _root.Controls.Add(BuildListHost(), 0, 4);
+        _root.Controls.Add(BuildStatusBar(), 0, 5);
 
         _filterTimer.Tick += (_, _) =>
         {
@@ -241,6 +255,7 @@ public sealed class MainForm : Form, IListViewRowSource
         _miAddFolder = FindMenuItem("menuAddFolder")!;
         _miDelete = FindMenuItem("menuDelete")!;
         _miInfo = FindMenuItem("menuInfo")!;
+        _miRecover = FindMenuItem("menuRecover")!;
 
         EnableDrop(this);
         EnableDrop(_list);
@@ -255,6 +270,7 @@ public sealed class MainForm : Form, IListViewRowSource
         _tooltip.SetToolTip(_btnAdd, "向当前归档添加文件");
         _tooltip.SetToolTip(_btnDelete, "删除选中条目 (Delete)");
         _tooltip.SetToolTip(_btnInfo, "查看条目信息");
+        _tooltip.SetToolTip(_btnRecover, "忘记密码时尝试找回归档密码（字典 / 掩码 / 增量）");
         _tooltip.SetToolTip(_pathBox, "归档内的当前路径，回车可跳转");
         _tooltip.SetToolTip(_filterBox, "按名称筛选（全归档），Esc 清除");
 
@@ -319,6 +335,10 @@ public sealed class MainForm : Form, IListViewRowSource
         view.DropDownItems.Add(MenuItem("设置…", (_, _) => ShowSettings(), Keys.Control | Keys.Oemcomma));
 
         var tools = new ToolStripMenuItem("工具(&T)");
+        var recover = MenuItem("密码破译…", (_, _) => RunUi(RecoverPasswordAsync));
+        recover.Name = "menuRecover";
+        tools.DropDownItems.Add(recover);
+        tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(MenuItem("安装右键菜单…", (_, _) => InstallShellMenu()));
         tools.DropDownItems.Add(MenuItem("卸载右键菜单…", (_, _) => UninstallShellMenu()));
         tools.DropDownItems.Add(MenuItem("打开 Windows 默认应用设置…", (_, _) => OpenDefaultAppsSettings()));
@@ -371,6 +391,8 @@ public sealed class MainForm : Form, IListViewRowSource
         return null;
     }
 
+    private Control BuildInfoHost() => _infoStrip;
+
     private Control BuildToolbar()
     {
         var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Margin = Padding.Empty };
@@ -392,18 +414,25 @@ public sealed class MainForm : Form, IListViewRowSource
         {
             BackColor = Theme.Border,
             Size = new Size(1, 24),
-            Margin = new Padding(8, 7, 8, 7),
+            Margin = new Padding(9, 8, 9, 7),
         });
 
+        // 组 1：打开 / 解压
         flow.Controls.Add(_btnOpen);
         flow.Controls.Add(_btnExtractTo);
         flow.Controls.Add(_btnExtractHere);
+        AddSeparator();
+        // 组 2：校验
         flow.Controls.Add(_btnTest);
         AddSeparator();
+        // 组 3：编辑归档
         flow.Controls.Add(_btnCreate);
         flow.Controls.Add(_btnAdd);
         flow.Controls.Add(_btnDelete);
+        AddSeparator();
+        // 组 4：信息 / 工具
         flow.Controls.Add(_btnInfo);
+        flow.Controls.Add(_btnRecover);
         host.Controls.Add(flow);
         return host;
     }
@@ -419,52 +448,29 @@ public sealed class MainForm : Form, IListViewRowSource
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 6,
+            ColumnCount = 5,
             RowCount = 1,
             BackColor = Theme.Surface,
             Margin = Padding.Empty,
             Padding = new Padding(10, 0, 10, 0),
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76f));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 16f));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200f));
-
-        var pathLabel = new Label
-        {
-            Text = "位置",
-            AutoSize = true,
-            Anchor = AnchorStyles.Left,
-            ForeColor = Theme.TextDim,
-            Font = Theme.Ui(),
-            Margin = new Padding(0, 0, 8, 0),
-        };
-        layout.Controls.Add(pathLabel, 0, 0);
-
-        _pathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        _pathBox.Margin = new Padding(0, 9, 8, 9);
-        layout.Controls.Add(_pathBox, 1, 0);
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34f));   // 上级
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 8f));    // 间隙
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));   // 归档内路径
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 14f));   // 间隙
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230f));  // 筛选
 
         _btnUp.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         _btnUp.Margin = new Padding(0, 8, 0, 8);
-        layout.Controls.Add(_btnUp, 2, 0);
+        layout.Controls.Add(_btnUp, 0, 0);
 
-        var filterLabel = new Label
-        {
-            Text = "筛选",
-            AutoSize = true,
-            Anchor = AnchorStyles.Left,
-            ForeColor = Theme.TextDim,
-            Font = Theme.Ui(),
-            Margin = new Padding(0, 0, 8, 0),
-        };
-        layout.Controls.Add(filterLabel, 4, 0);
+        _pathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        _pathBox.Margin = new Padding(0, 8, 0, 8);
+        layout.Controls.Add(_pathBox, 2, 0);
 
         _filterBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        _filterBox.Margin = new Padding(0, 9, 0, 9);
-        layout.Controls.Add(_filterBox, 5, 0);
+        _filterBox.Margin = new Padding(0, 8, 0, 8);
+        layout.Controls.Add(_filterBox, 4, 0);
 
         host.Controls.Add(layout);
         return host;
@@ -479,34 +485,9 @@ public sealed class MainForm : Form, IListViewRowSource
             Padding = new Padding(10, 4, 10, 4),
             Margin = Padding.Empty,
         };
+        // 空态由 ThemedListView 自己在 WM_PAINT 里画（图标 + 主标题 + 副标题），
+        // 这里不再叠覆盖层——叠了会把它整个盖住。
         host.Controls.Add(_list);
-
-        _emptyLabel = new Label
-        {
-            Name = "lblEmptyHint",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = Theme.TextDim,
-            BackColor = Theme.Background,
-            Font = Theme.Ui(1f),
-            Padding = new Padding(24, 0, 24, 60),
-        };
-        _emptyLayer = new Panel { BackColor = Theme.Background };
-        _emptyLayer.Controls.Add(_emptyLabel);
-        host.Controls.Add(_emptyLayer);
-        _emptyLayer.BringToFront();
-
-        void PlaceEmptyLayer()
-        {
-            if (_emptyLayer == null) return;
-            int headerHeight = (int)Math.Round(28 * _list.DeviceDpi / 96.0);
-            _emptyLayer.Bounds = new Rectangle(0, headerHeight,
-                Math.Max(0, host.ClientSize.Width), Math.Max(0, host.ClientSize.Height - headerHeight));
-            _emptyLayer.BringToFront();
-        }
-
-        host.Resize += (_, _) => PlaceEmptyLayer();
-        PlaceEmptyLayer();
         return host;
     }
 
@@ -1000,6 +981,7 @@ public sealed class MainForm : Form, IListViewRowSource
         {
             _lblStatus.Text = "就绪 — 打开或拖入一个归档文件";
             _lblElapsed.Text = "";
+            SyncInfoStrip();
             UpdateEngineLabel();
             return;
         }
@@ -1011,8 +993,32 @@ public sealed class MainForm : Form, IListViewRowSource
         _lblElapsed.Text = "耗时 " + (_listResult.Elapsed.TotalSeconds < 1
             ? $"{_listResult.Elapsed.TotalMilliseconds:0} ms"
             : $"{_listResult.Elapsed.TotalSeconds:0.00} s");
+        SyncInfoStrip();
         UpdateEngineLabel();
         Program.TimingLog("UpdateStatus done");
+    }
+
+    /// <summary>把归档身份信息同步到顶部信息条，并按有无归档把该行展开/收起。</summary>
+    private void SyncInfoStrip()
+    {
+        var hasArchive = _listResult != null;
+        if (hasArchive)
+        {
+            var compressed = _archiveFileSize > 0 ? _archiveFileSize : _compressedTotal;
+            _infoStrip.SetArchive(_archivePath, _listResult!.Format, _archiveEncrypted, _archiveReadOnly,
+                _fileCount, _dirCount, _listResult.TotalSize, compressed);
+        }
+        else
+        {
+            _infoStrip.Clear();
+        }
+
+        float target = hasArchive ? _infoStrip.PreferredHeight : 0f;
+        if (Math.Abs(_infoRow.Height - target) > 0.5f)
+        {
+            _infoRow.Height = target;
+            _root.PerformLayout();
+        }
     }
 
     private void SetStatus(string text)
@@ -1061,8 +1067,6 @@ public sealed class MainForm : Form, IListViewRowSource
 
         _list.EmptyText = title;
         _list.EmptySubText = sub;
-        if (_emptyLabel != null) _emptyLabel.Text = title + "\n\n" + sub;
-        if (_emptyLayer != null) _emptyLayer.Visible = _view.Count == 0;
     }
 
     private bool CanEditArchive()
@@ -1099,11 +1103,13 @@ public sealed class MainForm : Form, IListViewRowSource
         _btnAdd.Enabled = canEdit && !_busy;
         _btnDelete.Enabled = canEdit && hasSelection && !_busy;
         _btnInfo.Enabled = hasArchive && !_busy;
+        _btnRecover.Enabled = hasArchive && !_busy;
         _btnUp.Enabled = hasArchive && _currentDir.Length > 0 && !_busy;
 
         _miExtractTo.Enabled = hasArchive;
         _miExtractHere.Enabled = hasArchive;
         _miTest.Enabled = hasArchive;
+        _miRecover.Enabled = hasArchive;
         _miAddFiles.Enabled = canEdit;
         _miAddFolder.Enabled = canEdit;
         _miDelete.Enabled = canEdit && hasSelection;
@@ -1227,8 +1233,6 @@ public sealed class MainForm : Form, IListViewRowSource
         _list.RefreshRows();
         _list.EmptyText = "正在载入列表…";
         _list.EmptySubText = "";
-        if (_emptyLabel != null) _emptyLabel.Text = "正在载入列表…";
-        if (_emptyLayer != null) _emptyLayer.Visible = true;
         UpdateCommandStates();
         Program.TimingLog("provisional status");
 
@@ -1521,7 +1525,29 @@ public sealed class MainForm : Form, IListViewRowSource
     // ————————————————————————————————————————————————
     private Task TestArchiveAsync() => TestArchiveCoreAsync(closeAfter: false);
 
-    private async Task TestArchiveCoreAsync(bool closeAfter)
+    /// <summary>密码破译：本地组合尝试找回密码；找到后可立即用于解压。</summary>
+    private async Task RecoverPasswordAsync()
+    {
+        if (_busy || _listResult == null) return;
+
+        using var dialog = new RecoveryDialog(_archivePath, _listResult.Format, _service);
+        var result = dialog.ShowDialog(this);
+
+        var found = dialog.FoundPassword;
+        if (string.IsNullOrEmpty(found))
+        {
+            if (result == DialogResult.OK) UpdateCommandStates();
+            await Task.CompletedTask;
+            return;
+        }
+
+        _archivePassword = found;
+        SetStatus("已找到密码并记入本次会话 —— 直接「解压到…」即可，不必再输入。");
+        UpdateCommandStates();
+
+        if (MsgBox.Confirm(this, "密码已找到。现在用它解压这个归档吗？"))
+            await ExtractArchiveAsync(here: false);
+    }    private async Task TestArchiveCoreAsync(bool closeAfter)
     {
         if (_listResult == null)
         {
@@ -2391,7 +2417,7 @@ public sealed class MainForm : Form, IListViewRowSource
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        Theme.ApplyDarkTitleBar(this);
+        Theme.ApplyWindowChrome(this);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
